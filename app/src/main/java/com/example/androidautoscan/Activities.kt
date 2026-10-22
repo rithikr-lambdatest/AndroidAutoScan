@@ -18,54 +18,74 @@ import android.widget.TextView
 
 // =====================================================================
 // AndroidAutoScan — fixture for accessibility autoScan TRIGGER COMMANDS.
-// One page per Appium endpoint (/click, /tap, /value, /clear, /swipe,
-// /scroll, /longpress, /doubletap, /flick, /actions, /back, /orientation);
-// each page hosts the element the gesture is performed on, a live counter
-// proving the gesture landed, and ONE unlabeled ImageButton so every
-// triggered scan has an identifiable finding on that page.
+// One page per Appium endpoint. autoScan fires on the command but the scan
+// is SKIPPED when the screenshot's pHash is >95% similar to any previous
+// scan — so every page devotes its bottom half to a "stage panel" with a
+// page-unique vivid colour + giant text BEFORE the gesture, swapping to a
+// completely different colour + text AFTER the gesture. Page entry and the
+// gesture itself therefore each produce a pHash-distinct screen.
+// Each page also keeps a live counter and one unlabeled ImageButton so
+// every scan has an identifiable finding.
 // =====================================================================
 
 private fun Activity.dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-/** Standard page skeleton: title, gesture area via [content], counter label, violation. */
-private fun Activity.page(title: String, counterId: String? = null,
-                          content: LinearLayout.(TextView?) -> Unit) {
+/** Bottom-half stage panel: starts in the "before" look; fire() swaps to "after". */
+private class Stage(
+    val panel: TextView,
+    private val afterColor: Int,
+    private val afterText: String,
+) {
+    fun fire() {
+        panel.setBackgroundColor(afterColor)
+        panel.text = afterText
+    }
+}
+
+/**
+ * Page skeleton: title + content on top, unlabeled image button (per-page
+ * violation), then the stage panel filling the remaining ~50% of the screen.
+ */
+private fun Activity.page(
+    title: String,
+    beforeColor: Int, beforeText: String,
+    afterColor: Int, afterText: String,
+    content: LinearLayout.(Stage) -> Unit,
+) {
     val root = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         fitsSystemWindows = true
-        setPadding(dp(16), dp(16), dp(16), dp(16))
     }
-    root.addView(TextView(this).apply {
+    val top = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(16), dp(16), dp(8))
+    }
+    top.addView(TextView(this).apply {
         text = title
         textSize = 22f
-        setPadding(0, 0, 0, dp(12))
+        setPadding(0, 0, 0, dp(10))
     })
-    val counter = counterId?.let {
-        TextView(this).apply {
-            text = "count: 0"
-            textSize = 16f
-            contentDescription = "gesture counter"
-            tag = it
-            accessibilityPaneTitle = null
-        }
+    val panel = TextView(this).apply {
+        text = beforeText
+        textSize = 32f
+        setTextColor(0xFFFFFFFF.toInt())
+        gravity = Gravity.CENTER
+        setBackgroundColor(beforeColor)
+        contentDescription = "stage_panel"
     }
-    root.content(counter)
-    counter?.let { c ->
-        c.setTag(c.tag); c.id = View.generateViewId()
-        root.addView(c)
-    }
-    // Per-page violation: unlabeled image button -> missing contentDescription.
-    root.addView(ImageButton(this).apply {
-        setImageResource(android.R.drawable.ic_menu_info_details)
-        tag = "violation_missing_label"
-    }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(16) })
+    val stage = Stage(panel, afterColor, afterText)
+    top.content(stage)
+    top.addView(ImageButton(this).apply {
+        setImageResource(android.R.drawable.ic_menu_info_details)   // unlabeled: violation
+    }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(8) })
+    root.addView(top, LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+    root.addView(panel, LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.1f))
     setContentView(root)
 }
 
-/** Counter helper — resource-id isn't available for programmatic views, so pages set
- *  the Appium-visible identity via contentDescription on interactive targets and
- *  readable text for assertions. */
-private fun TextView.bump(prefix: String = "count") {
+private fun TextView.bump(prefix: String) {
     val n = (text.toString().substringAfter(": ").toIntOrNull() ?: 0) + 1
     text = "$prefix: $n"
 }
@@ -115,13 +135,15 @@ class HomeActivity : Activity() {
 class ClickActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Click page") { _ ->
+        page("Click page",
+            0xFF1E88E5.toInt(), "CLICK\nWAITING",
+            0xFFFFC107.toInt(), "CLICK\nDONE ✔") { stage ->
             val counter = TextView(context).apply { text = "clicks: 0"; textSize = 16f; contentDescription = "click_count" }
             addView(Button(context).apply {
                 text = "Click me"
                 isAllCaps = false
                 contentDescription = "btn_click"
-                setOnClickListener { counter.bump("clicks") }
+                setOnClickListener { counter.bump("clicks"); stage.fire() }
             })
             addView(counter)
         }
@@ -132,13 +154,15 @@ class TapActivity : Activity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Tap page") { _ ->
+        page("Tap page",
+            0xFF43A047.toInt(), "TAP\nWAITING",
+            0xFFE91E63.toInt(), "TAP\nDONE ✔") { stage ->
             val counter = TextView(context).apply { text = "taps: 0"; textSize = 16f; contentDescription = "tap_count" }
             addView(View(context).apply {
-                setBackgroundColor(0xFFB3C7E6.toInt())
+                setBackgroundColor(0xFF90CAF9.toInt())
                 contentDescription = "tap_area"
-                setOnClickListener { counter.bump("taps") }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(120)))
+                setOnClickListener { counter.bump("taps"); stage.fire() }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(110)))
             addView(counter)
         }
     }
@@ -147,18 +171,21 @@ class TapActivity : Activity() {
 class ValueActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Value page") { _ ->
-            val echo = TextView(context).apply { text = "typed: "; textSize = 16f; contentDescription = "value_echo" }
+        page("Value page",
+            0xFF8E24AA.toInt(), "VALUE\nEMPTY",
+            0xFF00BCD4.toInt(), "VALUE\nTEXT TYPED ✔") { stage ->
             addView(EditText(context).apply {
                 hint = "Type here"
                 contentDescription = "input_value"
                 addTextChangedListener(object : android.text.TextWatcher {
-                    override fun afterTextChanged(s: android.text.Editable?) { echo.text = "typed: ${s}" }
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        if (!s.isNullOrEmpty()) stage.fire()
+                    }
                     override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
                     override fun onTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
                 })
             })
-            addView(echo)
+            addView(TextView(context).apply { text = "typed text appears above"; textSize = 14f; contentDescription = "value_echo" })
         }
     }
 }
@@ -166,58 +193,77 @@ class ValueActivity : Activity() {
 class ClearActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Clear page") { _ ->
+        page("Clear page",
+            0xFF6D4C41.toInt(), "CLEAR\nHAS TEXT",
+            0xFFCDDC39.toInt(), "CLEAR\nEMPTIED ✔") { stage ->
             addView(EditText(context).apply {
                 setText("Clear this text")
                 contentDescription = "input_clear"
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        if (s.isNullOrEmpty()) stage.fire()
+                    }
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, c: Int, d: Int) {}
+                })
             })
         }
     }
 }
 
-/** Shared base for the drag-family pages (swipe / flick / actions). */
 abstract class TouchCounterActivity(
     private val title: String,
     private val areaDesc: String,
     private val counterDesc: String,
     private val counterPrefix: String,
+    private val areaColor: Int,
+    private val beforeColor: Int, private val beforeText: String,
+    private val afterColor: Int, private val afterText: String,
 ) : Activity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page(title) { _ ->
+        page(title, beforeColor, beforeText, afterColor, afterText) { stage ->
             val counter = TextView(context).apply { text = "$counterPrefix: 0"; textSize = 16f; contentDescription = counterDesc }
             addView(View(context).apply {
-                setBackgroundColor(0xFFCBE6B3.toInt())
+                setBackgroundColor(areaColor)
                 contentDescription = areaDesc
                 var downX = 0f; var downY = 0f
                 setOnTouchListener { _, e ->
                     when (e.actionMasked) {
                         MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; true }
                         MotionEvent.ACTION_UP -> {
-                            if (kotlin.math.abs(e.x - downX) > 80 || kotlin.math.abs(e.y - downY) > 80 || countTouchesToo())
-                                counter.bump(counterPrefix)
+                            if (kotlin.math.abs(e.x - downX) > 80 || kotlin.math.abs(e.y - downY) > 80 || countTouchesToo()) {
+                                counter.bump(counterPrefix); stage.fire()
+                            }
                             true
                         }
                         else -> true
                     }
                 }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(200)))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(130)))
             addView(counter)
         }
     }
     open fun countTouchesToo() = false
 }
 
-class SwipeActivity : TouchCounterActivity("Swipe page", "swipe_area", "swipe_count", "swipes")
-class FlickActivity : TouchCounterActivity("Flick page", "flick_area", "flick_count", "flicks")
-class ActionsActivity : TouchCounterActivity("Actions page", "actions_area", "actions_count", "gestures") {
-    override fun countTouchesToo() = true   // plain pointer sequences count as well
+class SwipeActivity : TouchCounterActivity("Swipe page", "swipe_area", "swipe_count", "swipes",
+    0xFFFFAB91.toInt(), 0xFFF4511E.toInt(), "SWIPE\nWAITING", 0xFF3949AB.toInt(), "SWIPE\nDONE ✔")
+
+class FlickActivity : TouchCounterActivity("Flick page", "flick_area", "flick_count", "flicks",
+    0xFF81D4FA.toInt(), 0xFF039BE5.toInt(), "FLICK\nWAITING", 0xFFFB8C00.toInt(), "FLICK\nDONE ✔")
+
+class ActionsActivity : TouchCounterActivity("Actions page", "actions_area", "actions_count", "gestures",
+    0xFFE6EE9C.toInt(), 0xFF9E9D24.toInt(), "ACTIONS\nWAITING", 0xFF8D6E63.toInt(), "ACTIONS\nDONE ✔") {
+    override fun countTouchesToo() = true
 }
 
 class ScrollActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        // The scroll page IS its own stage: vivid full-width colour bands mean any
+        // scroll position shows a different band composition to the pHash.
         val scroll = ScrollView(this).apply { fitsSystemWindows = true; contentDescription = "scroll_container" }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -226,13 +272,19 @@ class ScrollActivity : Activity() {
         root.addView(TextView(this).apply { text = "Scroll page"; textSize = 22f; setPadding(0, 0, 0, dp(12)) })
         root.addView(ImageButton(this).apply { setImageResource(android.R.drawable.ic_menu_info_details) },
             LinearLayout.LayoutParams(dp(48), dp(48)))
+        val band = intArrayOf(0xFFE53935.toInt(), 0xFFFDD835.toInt(), 0xFF43A047.toInt(),
+                              0xFF1E88E5.toInt(), 0xFF8E24AA.toInt(), 0xFFFB8C00.toInt())
         repeat(40) { i ->
             root.addView(TextView(this).apply {
                 text = "Row ${i + 1}"
-                textSize = 16f
-                setPadding(0, dp(10), 0, dp(10))
+                textSize = 20f
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(band[i % band.size])
+                setPadding(dp(12), dp(14), 0, dp(14))
                 if (i == 39) contentDescription = "scroll_bottom"
-            })
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) })
         }
         scroll.addView(root)
         setContentView(scroll)
@@ -242,13 +294,15 @@ class ScrollActivity : Activity() {
 class LongPressActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("LongPress page") { _ ->
+        page("LongPress page",
+            0xFF00897B.toInt(), "LONGPRESS\nWAITING",
+            0xFFD81B60.toInt(), "LONGPRESS\nDONE ✔") { stage ->
             val counter = TextView(context).apply { text = "longpresses: 0"; textSize = 16f; contentDescription = "longpress_count" }
             addView(View(context).apply {
-                setBackgroundColor(0xFFE6CBB3.toInt())
+                setBackgroundColor(0xFF80CBC4.toInt())
                 contentDescription = "longpress_area"
-                setOnLongClickListener { counter.bump("longpresses"); true }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(150)))
+                setOnLongClickListener { counter.bump("longpresses"); stage.fire(); true }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(120)))
             addView(counter)
         }
     }
@@ -258,16 +312,20 @@ class DoubleTapActivity : Activity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("DoubleTap page") { _ ->
+        page("DoubleTap page",
+            0xFF5E35B1.toInt(), "DOUBLETAP\nWAITING",
+            0xFF7CB342.toInt(), "DOUBLETAP\nDONE ✔") { stage ->
             val counter = TextView(context).apply { text = "doubletaps: 0"; textSize = 16f; contentDescription = "doubletap_count" }
             val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDoubleTap(e: MotionEvent): Boolean { counter.bump("doubletaps"); return true }
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    counter.bump("doubletaps"); stage.fire(); return true
+                }
             })
             addView(View(context).apply {
-                setBackgroundColor(0xFFD9B3E6.toInt())
+                setBackgroundColor(0xFFCE93D8.toInt())
                 contentDescription = "doubletap_area"
                 setOnTouchListener { _, e -> detector.onTouchEvent(e); true }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(150)))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(120)))
             addView(counter)
         }
     }
@@ -276,7 +334,9 @@ class DoubleTapActivity : Activity() {
 class BackActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Back page") { _ ->
+        page("Back page",
+            0xFF546E7A.toInt(), "BACK PAGE\nPRESS BACK",
+            0xFF546E7A.toInt(), "") { _ ->
             addView(TextView(context).apply {
                 text = "Press the system back button to leave this page."
                 textSize = 16f
@@ -288,13 +348,14 @@ class BackActivity : Activity() {
 
 class OrientationActivity : Activity() {
     private lateinit var label: TextView
+    private var stage: Stage? = null
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        page("Orientation page") { _ ->
-            label = TextView(context).apply {
-                textSize = 16f
-                contentDescription = "orientation_label"
-            }
+        page("Orientation page",
+            0xFF26A69A.toInt(), "PORTRAIT",
+            0xFFEF5350.toInt(), "LANDSCAPE") { s ->
+            stage = s
+            label = TextView(context).apply { textSize = 16f; contentDescription = "orientation_label" }
             addView(label)
         }
         render(resources.configuration)
@@ -304,10 +365,10 @@ class OrientationActivity : Activity() {
         render(newConfig)
     }
     private fun render(c: Configuration) {
-        label.text = if (c.orientation == Configuration.ORIENTATION_LANDSCAPE) "orientation: landscape" else "orientation: portrait"
+        val land = c.orientation == Configuration.ORIENTATION_LANDSCAPE
+        label.text = if (land) "orientation: landscape" else "orientation: portrait"
+        if (land) stage?.fire()
     }
 }
 
-// LinearLayout content closures run with the layout as receiver; expose dp via its context.
 private fun android.content.Context.dpOf(v: Int) = (v * resources.displayMetrics.density).toInt()
-private val LinearLayout.context2: android.content.Context get() = context
