@@ -313,19 +313,21 @@ class ScrollActivity : Activity() {
         root.addView(TextView(this).apply { text = "Scroll page"; textSize = 22f; setPadding(0, 0, 0, dp(12)) })
         root.addView(ImageButton(this).apply { setImageResource(android.R.drawable.ic_menu_info_details) },
             LinearLayout.LayoutParams(dp(48), dp(48)))
-        val band = intArrayOf(0xFFE53935.toInt(), 0xFFFDD835.toInt(), 0xFF43A047.toInt(),
-                              0xFF1E88E5.toInt(), 0xFF8E24AA.toInt(), 0xFFFB8C00.toInt())
+        // Rows alternate PURE BLACK / PURE WHITE (tall), so every scroll step swaps
+        // black<->white at each screen position — a big luminance delta for the 8x8
+        // average hash. Colour bands sit at similar brightness and barely move it.
         repeat(40) { i ->
+            val darkRow = i % 2 == 0
             root.addView(TextView(this).apply {
                 text = "Row ${i + 1}"
-                textSize = 20f
-                setTextColor(0xFFFFFFFF.toInt())
-                setBackgroundColor(band[i % band.size])
-                setPadding(dp(12), dp(14), 0, dp(14))
+                textSize = 22f
+                setTextColor(if (darkRow) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+                setBackgroundColor(if (darkRow) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                setPadding(dp(12), dp(28), 0, dp(28))
                 if (i == 39) contentDescription = "scroll_bottom"
             }, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) })
+                LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         scroll.addView(root)
         setContentView(scroll)
