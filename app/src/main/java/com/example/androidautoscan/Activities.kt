@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.Gravity
@@ -28,18 +31,60 @@ import android.widget.TextView
 // every scan has an identifiable finding.
 // =====================================================================
 
+private var pageSeed = 1
 private fun Activity.dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-/** Bottom-half stage panel: starts in the "before" look; fire() swaps to "after". */
+/**
+ * Bottom-half stage panel rendered as a black/white BLOCK GRID. The autoScan
+ * pHash is an 8x8 AVERAGE hash — it keys on luminance, not colour, so solid
+ * colours (blue vs amber) barely move it and get deduped. A per-page block
+ * pattern gives a distinct luminance signature page-to-page, and fire()
+ * INVERTS every cell (black<->white) so the before/after screens are maximally
+ * far apart in the hash. A big label is overlaid for human readability.
+ */
+private class PatternView(
+    ctx: android.content.Context,
+    private val seed: Int,
+    private val cols: Int,
+    private val rows: Int,
+) : View(ctx) {
+    var inverted = false
+        private set
+    var label = ""
+    private val cell = Paint()
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.RED; textAlign = Paint.Align.CENTER; isFakeBoldText = true
+    }
+    fun fire() { inverted = !inverted; invalidate() }
+    private fun dark(r: Int, c: Int): Boolean {
+        val v = (r * 7 + c * 13 + seed * 17) % 5
+        return (v < 3) != inverted
+    }
+    override fun onDraw(canvas: Canvas) {
+        val cw = width.toFloat() / cols
+        val ch = height.toFloat() / rows
+        for (r in 0 until rows) for (c in 0 until cols) {
+            cell.color = if (dark(r, c)) Color.BLACK else Color.WHITE
+            canvas.drawRect(c * cw, r * ch, (c + 1) * cw, (r + 1) * ch, cell)
+        }
+        if (label.isNotEmpty()) {
+            text.textSize = height * 0.22f
+            val lines = label.split("\n")
+            val total = lines.size * text.textSize * 1.1f
+            var y = height / 2f - total / 2f + text.textSize
+            for (ln in lines) { canvas.drawText(ln, width / 2f, y, text); y += text.textSize * 1.1f }
+        }
+    }
+}
+
+/** Thin wrapper so pages keep the before/after text semantics. */
 private class Stage(
-    val panel: TextView,
-    private val afterColor: Int,
+    private val view: PatternView,
     private val afterText: String,
 ) {
-    fun fire() {
-        panel.setBackgroundColor(afterColor)
-        panel.text = afterText
-    }
+    init { }
+    val panel: View get() = view
+    fun fire() { view.fire(); view.label = afterText; view.invalidate() }
 }
 
 /**
@@ -65,22 +110,18 @@ private fun Activity.page(
         textSize = 22f
         setPadding(0, 0, 0, dp(10))
     })
-    val panel = TextView(this).apply {
-        text = beforeText
-        textSize = 32f
-        setTextColor(0xFFFFFFFF.toInt())
-        gravity = Gravity.CENTER
-        setBackgroundColor(beforeColor)
+    val pv = PatternView(this, seed = pageSeed++, cols = 6 + (pageSeed % 4), rows = 5 + (pageSeed % 3)).apply {
+        label = beforeText
         contentDescription = "stage_panel"
     }
-    val stage = Stage(panel, afterColor, afterText)
+    val stage = Stage(pv, afterText)
     top.content(stage)
     top.addView(ImageButton(this).apply {
         setImageResource(android.R.drawable.ic_menu_info_details)   // unlabeled: violation
     }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { topMargin = dp(8) })
     root.addView(top, LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-    root.addView(panel, LinearLayout.LayoutParams(
+    root.addView(pv, LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.1f))
     setContentView(root)
 }
