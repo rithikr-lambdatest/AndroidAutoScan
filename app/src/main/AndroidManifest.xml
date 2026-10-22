@@ -22,8 +22,6 @@
         <activity android:name=".LongPressActivity" android:exported="false" />
         <activity android:name=".DoubleTapActivity" android:exported="false" />
         <activity android:name=".FlickActivity" android:exported="false" />
-        <activity android:name=".ActionsActivity" android:exported="false" />
-        <activity android:name=".BackActivity" android:exported="false" />
         <activity android:name=".OrientationActivity" android:exported="false"
             android:configChanges="orientation|screenSize" />
     </application>

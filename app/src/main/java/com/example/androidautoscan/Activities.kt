@@ -154,8 +154,6 @@ class HomeActivity : Activity() {
             "LongPress" to LongPressActivity::class.java,
             "DoubleTap" to DoubleTapActivity::class.java,
             "Flick" to FlickActivity::class.java,
-            "Actions" to ActionsActivity::class.java,
-            "Back" to BackActivity::class.java,
             "Orientation" to OrientationActivity::class.java,
         )
         for ((label, cls) in pages) {
@@ -295,11 +293,6 @@ class SwipeActivity : TouchCounterActivity("Swipe page", "swipe_area", "swipe_co
 class FlickActivity : TouchCounterActivity("Flick page", "flick_area", "flick_count", "flicks",
     0xFF81D4FA.toInt(), 0xFF039BE5.toInt(), "FLICK\nWAITING", 0xFFFB8C00.toInt(), "FLICK\nDONE ✔")
 
-class ActionsActivity : TouchCounterActivity("Actions page", "actions_area", "actions_count", "gestures",
-    0xFFE6EE9C.toInt(), 0xFF9E9D24.toInt(), "ACTIONS\nWAITING", 0xFF8D6E63.toInt(), "ACTIONS\nDONE ✔") {
-    override fun countTouchesToo() = true
-}
-
 class ScrollActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -381,21 +374,6 @@ class DoubleTapActivity : Activity() {
                 setOnTouchListener { _, e -> detector.onTouchEvent(e); true }
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpOf(120)))
             addView(counter)
-        }
-    }
-}
-
-class BackActivity : Activity() {
-    override fun onCreate(b: Bundle?) {
-        super.onCreate(b)
-        page("Back page",
-            0xFF546E7A.toInt(), "BACK PAGE\nPRESS BACK",
-            0xFF546E7A.toInt(), "") { _ ->
-            addView(TextView(context).apply {
-                text = "Press the system back button to leave this page."
-                textSize = 16f
-                contentDescription = "back_hint"
-            })
         }
     }
 }
